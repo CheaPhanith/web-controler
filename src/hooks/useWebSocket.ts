@@ -16,6 +16,7 @@ interface UseWebSocketReturn {
   lastMessage: WebSocketMessage | null;
   error: string | null;
   connectedRobots: string[];
+  isRobotConnected: boolean;
 }
 
 export function useWebSocket(): UseWebSocketReturn {
@@ -23,6 +24,7 @@ export function useWebSocket(): UseWebSocketReturn {
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connectedRobots, setConnectedRobots] = useState<string[]>([]);
+  const [isRobotConnected, setIsRobotConnected] = useState(false);
   
   const ws = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -50,22 +52,40 @@ export function useWebSocket(): UseWebSocketReturn {
           
           // Handle different message types
           switch (message.type) {
+            case 'welcome':
+              // Check if robot is already connected when web client connects
+              if (message.robotConnected) {
+                setIsRobotConnected(true);
+                setConnectedRobots(['robot_001']);
+              } else {
+                setIsRobotConnected(false);
+                setConnectedRobots([]);
+              }
+              break;
             case 'connected_robots':
               if (message.robots) {
                 setConnectedRobots(message.robots);
+                setIsRobotConnected(message.robots.length > 0);
               }
               break;
             case 'robot_connected':
-              setConnectedRobots(prev => [...prev, message.robotId || '']);
+              console.log('Robot connected:', message.robotId);
+              setIsRobotConnected(true);
+              setConnectedRobots([message.robotId || 'robot_001']);
               break;
             case 'robot_disconnected':
-              setConnectedRobots(prev => prev.filter(id => id !== message.robotId));
+              console.log('Robot disconnected:', message.robotId);
+              setIsRobotConnected(false);
+              setConnectedRobots([]);
               break;
             case 'robot_location':
               // Handle robot location updates
               break;
             case 'robot_status':
               // Handle robot status updates
+              break;
+            case 'error':
+              console.error('WebSocket error message:', message);
               break;
           }
         } catch (err) {
@@ -76,6 +96,8 @@ export function useWebSocket(): UseWebSocketReturn {
       ws.current.onclose = () => {
         console.log('WebSocket disconnected');
         setIsConnected(false);
+        setIsRobotConnected(false);
+        setConnectedRobots([]);
         
         // Attempt to reconnect
         if (reconnectAttempts.current < maxReconnectAttempts) {
@@ -129,6 +151,7 @@ export function useWebSocket(): UseWebSocketReturn {
     sendMessage,
     lastMessage,
     error,
-    connectedRobots
+    connectedRobots,
+    isRobotConnected
   };
 }

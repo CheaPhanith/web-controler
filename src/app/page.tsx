@@ -6,7 +6,7 @@ import ControlPanel from '../components/ControlPanel';
 import BottomPanel from '../components/BottomPanel';
 
 export default function Home() {
-  const { isConnected, connectedRobots, sendMessage } = useWebSocket();
+  const { isConnected, connectedRobots, sendMessage, isRobotConnected } = useWebSocket();
 
   const handleButtonPress = (button: string) => {
     console.log(`Button ${button} pressed`);
@@ -36,23 +36,6 @@ export default function Home() {
                 Real-time control interface
               </p>
             </div>
-            <div className="flex items-center gap-3 sm:gap-4">
-              <div
-                className={`w-3 h-3 sm:w-4 sm:h-4 rounded-full ${
-                  isConnected ? "bg-green-500 shadow-green-500/50" : "bg-red-500 shadow-red-500/50"
-                } shadow-lg animate-pulse`}
-              ></div>
-              <div className="text-right">
-                <p className="text-sm sm:text-base font-medium text-slate-700">
-                  {isConnected ? "Connected" : "Disconnected"}
-                </p>
-                {isConnected && (
-                  <p className="text-xs sm:text-sm text-slate-500">
-                    {connectedRobots.length} robot(s)
-                  </p>
-                )}
-              </div>
-            </div>
           </div>
         </div>
       </header>
@@ -66,30 +49,45 @@ export default function Home() {
                 Robot Location
               </h2>
             </div>
-            <div className="h-72 sm:h-80 lg:h-96 xl:h-[500px] rounded-2xl overflow-hidden shadow-xl border border-slate-200/50">
-              <MapComponent />
-            </div>
+            <MapComponent />
           </section>
 
           <section className="lg:col-span-1 space-y-6">
-            <ControlPanel 
-              isConnected={isConnected} 
-              onButtonPress={handleButtonPress}
-              sendMessage={sendMessage}
-            />
-            <BottomPanel 
-              isConnected={isConnected} 
+            <div className="w-full bg-white/70 backdrop-blur-sm rounded-2xl shadow-xl border border-slate-200/50 p-4 sm:p-6">
+              <div className="mb-4 sm:mb-6">
+                <div className="flex items-center gap-2 sm:gap-3 mb-2 sm:mb-3">
+                  <div className="w-1 h-5 sm:h-6 bg-gradient-to-b from-slate-500 to-slate-600 rounded-full"></div>
+                  <h2 className="text-lg sm:text-xl lg:text-2xl font-bold text-slate-800">
+                    Control Panel
+                  </h2>
+                </div>
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div
+                    className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full ${
+                      isRobotConnected ? "bg-green-500 shadow-green-500/50" : "bg-red-500 shadow-red-500/50"
+                    } shadow-lg animate-pulse`}
+                  ></div>
+                  <span className="text-sm sm:text-base font-medium text-slate-600">
+                    {isRobotConnected ? "Robot Connected" : "Robot Disconnected"}
+                  </span>
+                </div>
+              </div>
+              <ControlPanel
+                onButtonPress={handleButtonPress}
+                sendMessage={sendMessage}
+                isConnected={isRobotConnected}
+              />
+            </div>
+
+            <BottomPanel
               onVoiceCommand={handleVoiceCommand}
               onSendLocation={handleSendLocation}
               sendMessage={sendMessage}
+              isConnected={isRobotConnected}
             />
           </section>
         </div>
       </main>
-
-      <footer className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-center text-slate-500 text-sm">
-        <p>&copy; {new Date().getFullYear()} Robot Controller. All rights reserved.</p>
-      </footer>
     </div>
   );
 }

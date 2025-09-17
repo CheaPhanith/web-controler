@@ -6,6 +6,9 @@ const wss = new WebSocketServer({ port: 8000 });
 let connectedRobot = null;
 let connectedWebClient = null;
 
+// Fixed robot ID - no auto-generation
+const ROBOT_ID = "robot_001";
+
 console.log("WebSocket server starting on port 8000...");
 
 wss.on("connection", function connection(ws, req) {
@@ -41,7 +44,7 @@ wss.on("connection", function connection(ws, req) {
     if (connectedRobot) {
       ws.send(JSON.stringify({
         type: "robot_connected",
-        robotId: connectedRobot.robotId
+        robotId: ROBOT_ID
       }));
     }
     
@@ -52,23 +55,22 @@ wss.on("connection", function connection(ws, req) {
       connectedRobot.close();
     }
     
-    const robotId = `robot_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     connectedRobot = ws;
     ws.isRobot = true;
-    ws.robotId = robotId;
+    ws.robotId = ROBOT_ID; // Use fixed robot ID
     
-    console.log(`Robot connected: ${robotId} from ${req.socket.remoteAddress}`);
+    console.log(`Robot connected: ${ROBOT_ID} from ${req.socket.remoteAddress}`);
     ws.send(JSON.stringify({ 
       type: "welcome", 
       message: "Connected to Robot Controller", 
-      robotId 
+      robotId: ROBOT_ID
     }));
     
     // If web client is already connected, notify it about robot connection
     if (connectedWebClient && connectedWebClient.readyState === connectedWebClient.OPEN) {
       connectedWebClient.send(JSON.stringify({
         type: "robot_connected",
-        robotId: robotId
+        robotId: ROBOT_ID
       }));
     }
   }
@@ -193,10 +195,11 @@ wss.on("connection", function connection(ws, req) {
     if (ws.isRobot) {
       console.log(`Robot ${ws.robotId} disconnected`);
       connectedRobot = null;
-      // Notify web client that robot disconnected
+      // Notify web client that robot disconnected - include robotId
       if (connectedWebClient && connectedWebClient.readyState === connectedWebClient.OPEN) {
         connectedWebClient.send(JSON.stringify({
-          type: "robot_disconnected"
+          type: "robot_disconnected",
+          robotId: ROBOT_ID
         }));
       }
     } else {
