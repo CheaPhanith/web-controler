@@ -5,14 +5,27 @@ import { useState } from 'react';
 interface ControlPanelProps {
   onButtonPress: (button: string) => void;
   isConnected: boolean;
+  sendMessage: (message: any) => void;
 }
 
-export default function ControlPanel({ onButtonPress, isConnected }: ControlPanelProps) {
+export default function ControlPanel({ onButtonPress, isConnected, sendMessage }: ControlPanelProps) {
   const [pressedButton, setPressedButton] = useState<string | null>(null);
 
   const handleButtonClick = (button: string) => {
     setPressedButton(button);
     onButtonPress(button);
+    
+    // Send WebSocket message to robot
+    if (isConnected) {
+      const message = {
+        type: 'command',
+        command: button,
+        timestamp: new Date().toISOString(),
+        source: 'web_interface'
+      };
+      sendMessage(message);
+      console.log(`Sent command ${button} to robot via WebSocket`);
+    }
     
     // Reset pressed state after animation
     setTimeout(() => {

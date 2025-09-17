@@ -1,187 +1,145 @@
-const WebSocket = require('ws');
-const http = require('http');
+const { WebSocketServer } = require("ws");
 
-// Create HTTP server
-const server = http.createServer();
+const wss = new WebSocketServer({ port: 8000 });
 
-// Create WebSocket server
-const wss = new WebSocket.Server({ 
-  server
-});
+const connectedRobots = new Map(); // Stores connected robots with their IDs and WebSocket instances
+let robotCounter = 0;
 
-console.log('WebSocket server starting on port 8000...');
+console.log("WebSocket server starting on port 8000...");
 
-// Store connected robots
-const connectedRobots = new Map();
+wss.on("connection", function connection(ws, req) {
+  const robotId = `robot_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  connectedRobots.set(robotId, ws);
+  ws.isAlive = true; // For heartbeat
+  ws.robotId = robotId; // Assign robotId to WebSocket instance
 
-wss.on('connection', (ws, req) => {
-  const robotId = `robot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  const clientIP = req.socket.remoteAddress;
-  
-  console.log(`New robot connected: ${robotId} from ${clientIP}`);
-  
-  // Store robot connection
-  connectedRobots.set(robotId, {
-    ws,
-    id: robotId,
-    ip: clientIP,
-    connectedAt: new Date(),
-    lastPing: new Date()
+  console.log(`New robot connected: ${robotId} from ${req.socket.remoteAddress}`);
+  ws.send(JSON.stringify({ type: "welcome", message: "Connected to Robot Controller", robotId }));
+
+  // Send current connected robots list to the new client
+  broadcastToClients({
+    type: "connected_robots",
+    robots: Array.from(connectedRobots.keys()),
   });
 
-  // Send welcome message
-  ws.send(JSON.stringify({
-    type: 'welcome',
-    robotId: robotId,
-    message: 'Connected to Robot Controller',
-    timestamp: new Date().toISOString()
-  }));
-
-  // Handle incoming messages from robot
-  ws.on('message', (data) => {
+  ws.on("message", function message(data) {
     try {
-      const message = JSON.parse(data.toString());
-      console.log(`Message from ${robotId}:`, message);
-      
-      // Handle different message types
-      switch (message.type) {
-        case 'location':
-          console.log(`Robot ${robotId} location:`, message.data);
-          // Broadcast location to all connected clients (if any)
-          broadcastToClients({
-            type: 'robot_location',
-            robotId: robotId,
-            data: message.data,
-            timestamp: new Date().toISOString()
-          });
+      const parsedMessage = JSON.parse(data.toString());
+      console.log(`Message from ${robotId}:`, parsedMessage);
+
+      switch (parsedMessage.type) {
+        case "location":
+          // Handle location updates from the robot
+          console.log(`Robot ${robotId} location:`, parsedMessage.data);
+          // Broadcast location to all connected web clients (if any)
+          broadcastToClients({ type: "robot_location", robotId, data: parsedMessage.data });
           break;
-          
-        case 'status':
-          console.log(`Robot ${robotId} status:`, message.data);
-          broadcastToClients({
-            type: 'robot_status',
-            robotId: robotId,
-            data: message.data,
-            timestamp: new Date().toISOString()
-          });
+        case "status":
+          // Handle status updates from the robot
+          console.log(`Robot ${robotId} status:`, parsedMessage.data);
+          broadcastToClients({ type: "robot_status", robotId, data: parsedMessage.data });
           break;
-          
-        case 'command_response':
-          console.log(`Robot ${robotId} command response:`, message.data);
+        case "ping":
+          // Respond to ping with pong
+          ws.send(JSON.stringify({ type: "pong", timestamp: Date.now() }));
           break;
-          
-        case 'ping':
-          // Update last ping time
-          const robot = connectedRobots.get(robotId);
-          if (robot) {
-            robot.lastPing = new Date();
-          }
-          // Send pong response
+        case "command_response":
+          // Handle command responses from the robot
+          console.log(`Command response from ${robotId}:`, parsedMessage.data);
+          broadcastToClients({ type: "command_response", robotId, data: parsedMessage.data });
+          break;
+        case "command":
+          // Handle commands from web interface to robot
+          console.log(`Command sent to robot ${robotId}:`, parsedMessage.command);
+          // Forward command to the specific robot
           ws.send(JSON.stringify({
-            type: 'pong',
-            timestamp: new Date().toISOString()
+            type: "command_received",
+            command: parsedMessage.command,
+            timestamp: parsedMessage.timestamp,
+            source: parsedMessage.source
           }));
           break;
-          
+        case "voice_command":
+          // Handle voice commands from web interface
+          console.log(`Voice command sent to robot ${robotId}:`, parsedMessage.action);
+          ws.send(JSON.stringify({
+            type: "voice_command_received",
+            action: parsedMessage.action,
+            timestamp: parsedMessage.timestamp,
+            source: parsedMessage.source
+          }));
+          break;
+        case "location_request":
+          // Handle location requests from web interface
+          console.log(`Location request sent to robot ${robotId}:`, parsedMessage.data);
+          ws.send(JSON.stringify({
+            type: "location_request_received",
+            data: parsedMessage.data,
+            timestamp: parsedMessage.timestamp,
+            source: parsedMessage.source
+          }));
+          break;
         default:
-          console.log(`Unknown message type from ${robotId}:`, message.type);
+          console.log(`Unknown message type from ${robotId}: ${parsedMessage.type}`);
+          // Optionally, broadcast unknown messages or log them
+          broadcastToClients({ type: "unknown_message", robotId, data: parsedMessage });
       }
     } catch (error) {
-      console.error(`Error parsing message from ${robotId}:`, error);
+      console.error(`Failed to parse message from ${robotId}:`, data.toString(), error);
     }
   });
 
-  // Handle robot disconnection
-  ws.on('close', () => {
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
+
+  ws.on("close", () => {
     console.log(`Robot ${robotId} disconnected`);
     connectedRobots.delete(robotId);
     broadcastToClients({
-      type: 'robot_disconnected',
-      robotId: robotId,
-      timestamp: new Date().toISOString()
+      type: "connected_robots",
+      robots: Array.from(connectedRobots.keys()),
     });
   });
 
-  // Handle errors
-  ws.on('error', (error) => {
-    console.error(`WebSocket error for robot ${robotId}:`, error);
-    connectedRobots.delete(robotId);
+  ws.on("error", (error) => {
+    console.error(`WebSocket error for ${robotId}:`, error);
   });
 });
 
-// Function to broadcast messages to all connected clients (web interface)
+// Heartbeat mechanism to detect broken connections
+const interval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (!ws.isAlive) {
+      console.log(`Removing inactive robot: ${ws.robotId}`);
+      return ws.terminate();
+    }
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000); // Check every 30 seconds
+
+wss.on("close", () => {
+  clearInterval(interval);
+});
+
+console.log("Robot Controller WebSocket Server running on port 8000");
+console.log("Waiting for robot connections...");
+
+// Function to broadcast messages to all connected web clients (not robots)
 function broadcastToClients(message) {
-  const messageStr = JSON.stringify(message);
   wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(messageStr);
+    // Only send to clients that are not robots (or if you have a way to distinguish)
+    // For now, we'll send to all connected clients
+    if (client.readyState === client.OPEN) {
+      client.send(JSON.stringify(message));
     }
   });
 }
 
-// Function to send command to specific robot
-function sendCommandToRobot(robotId, command) {
-  const robot = connectedRobots.get(robotId);
-  if (robot && robot.ws.readyState === WebSocket.OPEN) {
-    const message = {
-      type: 'command',
-      command: command,
-      timestamp: new Date().toISOString()
-    };
-    robot.ws.send(JSON.stringify(message));
-    console.log(`Command sent to robot ${robotId}:`, command);
-    return true;
-  }
-  return false;
-}
-
-// Function to get connected robots info
-function getConnectedRobots() {
-  const robots = [];
-  connectedRobots.forEach((robot, id) => {
-    robots.push({
-      id: robot.id,
-      ip: robot.ip,
-      connectedAt: robot.connectedAt,
-      lastPing: robot.lastPing,
-      isConnected: robot.ws.readyState === WebSocket.OPEN
-    });
-  });
-  return robots;
-}
-
-// Start server
-server.listen(8000, '0.0.0.0', () => {
-  console.log('Robot Controller WebSocket Server running on port 8000');
-  console.log('Waiting for robot connections...');
-});
-
-// Cleanup disconnected robots every 30 seconds
-setInterval(() => {
-  const now = new Date();
-  connectedRobots.forEach((robot, id) => {
-    if (now - robot.lastPing > 60000) { // 1 minute timeout
-      console.log(`Removing inactive robot: ${id}`);
-      robot.ws.terminate();
-      connectedRobots.delete(id);
-    }
-  });
-}, 30000);
-
-// Graceful shutdown
-process.on('SIGINT', () => {
-  console.log('\nShutting down WebSocket server...');
-  wss.close(() => {
-    server.close(() => {
-      console.log('Server closed');
-      process.exit(0);
-    });
-  });
-});
-
-// Export functions for potential use by other modules
+// Export for potential use in other server-side logic (e.g., API routes)
 module.exports = {
-  sendCommandToRobot,
-  getConnectedRobots,
-  broadcastToClients
+  wss,
+  getConnectedRobots: () => Array.from(connectedRobots.keys()),
+  broadcastToClients,
 };

@@ -6,9 +6,10 @@ interface BottomPanelProps {
   onVoiceCommand: () => void;
   onSendLocation: () => void;
   isConnected: boolean;
+  sendMessage: (message: any) => void;
 }
 
-export default function BottomPanel({ onVoiceCommand, onSendLocation, isConnected }: BottomPanelProps) {
+export default function BottomPanel({ onVoiceCommand, onSendLocation, isConnected, sendMessage }: BottomPanelProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isSendingLocation, setIsSendingLocation] = useState(false);
 
@@ -18,9 +19,29 @@ export default function BottomPanel({ onVoiceCommand, onSendLocation, isConnecte
     setIsRecording(true);
     onVoiceCommand();
     
+    // Send WebSocket message for voice command
+    const message = {
+      type: 'voice_command',
+      action: 'start_recording',
+      timestamp: new Date().toISOString(),
+      source: 'web_interface'
+    };
+    sendMessage(message);
+    console.log('Sent voice command to robot via WebSocket');
+    
     // Simulate recording duration
     setTimeout(() => {
       setIsRecording(false);
+      
+      // Send stop recording message
+      const stopMessage = {
+        type: 'voice_command',
+        action: 'stop_recording',
+        timestamp: new Date().toISOString(),
+        source: 'web_interface'
+      };
+      sendMessage(stopMessage);
+      console.log('Sent stop voice command to robot via WebSocket');
     }, 2000);
   };
 
@@ -29,6 +50,25 @@ export default function BottomPanel({ onVoiceCommand, onSendLocation, isConnecte
     
     setIsSendingLocation(true);
     onSendLocation();
+    
+    // Get current location (in a real app, this would use geolocation API)
+    const currentLocation = {
+      lat: 37.7749, // Default to San Francisco
+      lng: -122.4194,
+      accuracy: 10,
+      timestamp: new Date().toISOString()
+    };
+    
+    // Send WebSocket message with location
+    const message = {
+      type: 'location_request',
+      action: 'send_current_location',
+      data: currentLocation,
+      timestamp: new Date().toISOString(),
+      source: 'web_interface'
+    };
+    sendMessage(message);
+    console.log('Sent location to robot via WebSocket:', currentLocation);
     
     // Simulate sending duration
     setTimeout(() => {

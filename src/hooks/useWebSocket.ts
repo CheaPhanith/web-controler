@@ -7,6 +7,7 @@ interface WebSocketMessage {
   data?: any;
   robotId?: string;
   timestamp?: string;
+  robots?: string[];
 }
 
 interface UseWebSocketReturn {
@@ -17,7 +18,7 @@ interface UseWebSocketReturn {
   connectedRobots: string[];
 }
 
-export function useWebSocket(url: string): UseWebSocketReturn {
+export function useWebSocket(): UseWebSocketReturn {
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,11 +30,13 @@ export function useWebSocket(url: string): UseWebSocketReturn {
   const maxReconnectAttempts = 5;
 
   const connect = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    
     try {
-      ws.current = new WebSocket(url);
+      ws.current = new WebSocket('ws://localhost:8000');
       
       ws.current.onopen = () => {
-        console.log('WebSocket connected');
+        console.log('WebSocket connected to ws://localhost:8000');
         setIsConnected(true);
         setError(null);
         reconnectAttempts.current = 0;
@@ -42,10 +45,16 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       ws.current.onmessage = (event) => {
         try {
           const message: WebSocketMessage = JSON.parse(event.data);
+          console.log('Received WebSocket message:', message);
           setLastMessage(message);
           
           // Handle different message types
           switch (message.type) {
+            case 'connected_robots':
+              if (message.robots) {
+                setConnectedRobots(message.robots);
+              }
+              break;
             case 'robot_connected':
               setConnectedRobots(prev => [...prev, message.robotId || '']);
               break;
@@ -91,13 +100,14 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       console.error('Error creating WebSocket:', err);
       setError('Failed to create WebSocket connection');
     }
-  }, [url]);
+  }, []);
 
   const sendMessage = useCallback((message: any) => {
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+      console.log('Sending WebSocket message:', message);
       ws.current.send(JSON.stringify(message));
     } else {
-      console.warn('WebSocket is not connected');
+      console.warn('WebSocket is not connected, cannot send message:', message);
     }
   }, []);
 
