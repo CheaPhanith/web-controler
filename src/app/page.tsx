@@ -6,7 +6,7 @@ import ControlPanel from '../components/ControlPanel';
 import BottomPanel from '../components/BottomPanel';
 
 export default function Home() {
-  const { isConnected, connectedRobots, sendMessage, isRobotConnected } = useWebSocket();
+  const { isConnected, connectedRobots, sendMessage, isRobotConnected, robotLocation } = useWebSocket();
 
   const handleButtonPress = (button: string) => {
     console.log(`Button ${button} pressed`);
@@ -49,7 +49,7 @@ export default function Home() {
                 Robot Location
               </h2>
             </div>
-            <MapComponent />
+            <MapComponent robotLocation={robotLocation} />
           </section>
 
           <section className="lg:col-span-1 space-y-6">

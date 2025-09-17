@@ -10,6 +10,12 @@ interface WebSocketMessage {
   robots?: string[];
 }
 
+interface RobotLocation {
+  lat: number;
+  lng: number;
+  timestamp: string;
+}
+
 interface UseWebSocketReturn {
   isConnected: boolean;
   sendMessage: (message: any) => void;
@@ -17,6 +23,7 @@ interface UseWebSocketReturn {
   error: string | null;
   connectedRobots: string[];
   isRobotConnected: boolean;
+  robotLocation: RobotLocation | null;
 }
 
 export function useWebSocket(): UseWebSocketReturn {
@@ -25,6 +32,7 @@ export function useWebSocket(): UseWebSocketReturn {
   const [error, setError] = useState<string | null>(null);
   const [connectedRobots, setConnectedRobots] = useState<string[]>([]);
   const [isRobotConnected, setIsRobotConnected] = useState(false);
+  const [robotLocation, setRobotLocation] = useState<RobotLocation | null>(null);
   
   const ws = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -77,11 +85,20 @@ export function useWebSocket(): UseWebSocketReturn {
               console.log('Robot disconnected:', message.robotId);
               setIsRobotConnected(false);
               setConnectedRobots([]);
+              setRobotLocation(null); // Clear location when robot disconnects
               break;
             case 'robot_location':
-              // Handle robot location updates
+              console.log('Robot location update:', message.data);
+              if (message.data) {
+                setRobotLocation({
+                  lat: message.data.lat,
+                  lng: message.data.lng,
+                  timestamp: message.data.timestamp || new Date().toISOString()
+                });
+              }
               break;
             case 'robot_status':
+              console.log('Robot status update:', message.data);
               // Handle robot status updates
               break;
             case 'error':
@@ -98,6 +115,7 @@ export function useWebSocket(): UseWebSocketReturn {
         setIsConnected(false);
         setIsRobotConnected(false);
         setConnectedRobots([]);
+        setRobotLocation(null);
         
         // Attempt to reconnect
         if (reconnectAttempts.current < maxReconnectAttempts) {
@@ -152,6 +170,7 @@ export function useWebSocket(): UseWebSocketReturn {
     lastMessage,
     error,
     connectedRobots,
-    isRobotConnected
+    isRobotConnected,
+    robotLocation
   };
 }
