@@ -1,0 +1,25 @@
+<svg width="25" height="41" viewBox="0 0 25 41" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="1" dy="1" stdDeviation="2" flood-color="#000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <!-- Robot body -->
+    <rect x="8" y="15" width="9" height="12" rx="2" fill="#3B82F6" stroke="#1E40AF" stroke-width="1"/>
+    <!-- Robot head -->
+    <rect x="6" y="8" width="13" height="10" rx="3" fill="#3B82F6" stroke="#1E40AF" stroke-width="1"/>
+    <!-- Eyes -->
+    <circle cx="9" cy="13" r="1.5" fill="#1E40AF"/>
+    <circle cx="16" cy="13" r="1.5" fill="#1E40AF"/>
+    <!-- Antenna -->
+    <line x1="12.5" y1="8" x2="12.5" y2="4" stroke="#1E40AF" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="12.5" cy="3" r="1" fill="#EF4444"/>
+    <!-- Arms -->
+    <rect x="4" y="17" width="3" height="6" rx="1" fill="#3B82F6" stroke="#1E40AF" stroke-width="1"/>
+    <rect x="18" y="17" width="3" height="6" rx="1" fill="#3B82F6" stroke="#1E40AF" stroke-width="1"/>
+    <!-- Legs -->
+    <rect x="9" y="27" width="2" height="8" rx="1" fill="#1E40AF"/>
+    <rect x="14" y="27" width="2" height="8" rx="1" fill="#1E40AF"/>
+  </g>
+</svg>
