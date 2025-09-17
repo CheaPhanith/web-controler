@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 
 // Dynamically import MapContainer to avoid SSR issues
@@ -32,14 +32,62 @@ interface MapComponentProps {
   };
 }
 
+// Custom marker component that updates position without re-rendering
+function RobotMarker({ position, timestamp }: { position: [number, number]; timestamp: string }) {
+  const markerRef = useRef<any>(null);
+  const popupRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (markerRef.current && position) {
+      // Smoothly animate marker to new position
+      markerRef.current.setLatLng(position);
+      
+      // Update popup content with new timestamp
+      if (popupRef.current) {
+        popupRef.current.setContent(`
+          <div class="text-center p-2">
+            <div class="font-semibold text-slate-800 mb-1">Robot Location</div>
+            <div class="text-sm text-slate-600">
+              <div>Lat: ${position[0].toFixed(6)}</div>
+              <div>Lng: ${position[1].toFixed(6)}</div>
+              <div class="text-xs text-slate-500 mt-1">
+                Last updated: ${new Date(timestamp).toLocaleTimeString()}
+              </div>
+            </div>
+          </div>
+        `);
+      }
+    }
+  }, [position, timestamp]);
+
+  return (
+    <Marker 
+      ref={markerRef}
+      position={position} 
+      icon={(window as any).robotIcon}
+    >
+      <Popup ref={popupRef}>
+        <div className="text-center p-2">
+          <div className="font-semibold text-slate-800 mb-1">Robot Location</div>
+          <div className="text-sm text-slate-600">
+            <div>Lat: {position[0].toFixed(6)}</div>
+            <div>Lng: {position[1].toFixed(6)}</div>
+            <div className="text-xs text-slate-500 mt-1">
+              Last updated: {new Date(timestamp).toLocaleTimeString()}
+            </div>
+          </div>
+        </div>
+      </Popup>
+    </Marker>
+  );
+}
+
 export default function MapComponent({ robotLocation }: MapComponentProps) {
   const [isClient, setIsClient] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
-  const [currentLocation, setCurrentLocation] = useState({
-    lat: 37.7749,
-    lng: -122.4194,
-    timestamp: new Date().toISOString()
-  });
+  const [currentLocation, setCurrentLocation] = useState<[number, number]>([37.7749, -122.4194]);
+  const [lastUpdate, setLastUpdate] = useState(new Date().toISOString());
+  const mapRef = useRef<any>(null);
 
   useEffect(() => {
     setIsClient(true);
@@ -48,7 +96,13 @@ export default function MapComponent({ robotLocation }: MapComponentProps) {
   // Update location when robotLocation prop changes
   useEffect(() => {
     if (robotLocation) {
-      setCurrentLocation(robotLocation);
+      setCurrentLocation([robotLocation.lat, robotLocation.lng]);
+      setLastUpdate(robotLocation.timestamp);
+      
+      // Optionally pan map to follow robot (uncomment if desired)
+      // if (mapRef.current) {
+      //   mapRef.current.setView([robotLocation.lat, robotLocation.lng], mapRef.current.getZoom());
+      // }
     }
   }, [robotLocation]);
 
@@ -64,7 +118,7 @@ export default function MapComponent({ robotLocation }: MapComponentProps) {
           shadowUrl: '/images/marker-shadow.png',
         });
 
-        // Create custom robot icon
+        // Create custom robot icon with smooth animation
         const robotIcon = L.divIcon({
           html: `
             <div style="
@@ -78,6 +132,7 @@ export default function MapComponent({ robotLocation }: MapComponentProps) {
               align-items: center;
               justify-content: center;
               position: relative;
+              transition: all 0.3s ease;
               animation: pulse 2s infinite;
             ">
               <div style="
@@ -146,32 +201,19 @@ export default function MapComponent({ robotLocation }: MapComponentProps) {
   return (
     <div className="relative h-72 sm:h-80 lg:h-96 xl:h-[500px] rounded-2xl overflow-hidden shadow-xl border border-slate-200/50">
       <MapContainer
-        center={[currentLocation.lat, currentLocation.lng]}
+        ref={mapRef}
+        center={currentLocation}
         zoom={13}
         style={{ height: '100%', width: '100%' }}
         zoomControl={true}
-        key={`${currentLocation.lat}-${currentLocation.lng}`} // Force re-render when location changes
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         
-        {/* Robot marker with real-time position */}
-        <Marker position={[currentLocation.lat, currentLocation.lng]} icon={(window as any).robotIcon}>
-          <Popup>
-            <div className="text-center p-2">
-              <div className="font-semibold text-slate-800 mb-1">Robot Location</div>
-              <div className="text-sm text-slate-600">
-                <div>Lat: {currentLocation.lat.toFixed(6)}</div>
-                <div>Lng: {currentLocation.lng.toFixed(6)}</div>
-                <div className="text-xs text-slate-500 mt-1">
-                  Last updated: {new Date(currentLocation.timestamp).toLocaleTimeString()}
-                </div>
-              </div>
-            </div>
-          </Popup>
-        </Marker>
+        {/* Robot marker with smooth real-time position updates */}
+        <RobotMarker position={currentLocation} timestamp={lastUpdate} />
       </MapContainer>
       
       {/* Real-time status indicator */}
