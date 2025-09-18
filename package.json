@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -H 0.0.0.0",
     "start:prod": "concurrently \"npm run websocket\" \"npm start\"",
     "lint": "eslint",
     "websocket": "node websocket-server.js",
