@@ -8,6 +8,9 @@ interface WebSocketMessage {
   robotId?: string;
   timestamp?: string;
   robots?: string[];
+  robotConnected?: boolean;
+  isWebClient?: boolean;
+  message?: string;
 }
 
 interface RobotLocation {
@@ -39,14 +42,28 @@ export function useWebSocket(): UseWebSocketReturn {
   const reconnectAttempts = useRef(0);
   const maxReconnectAttempts = 5;
 
+  // Get WebSocket URL based on current host
+  const getWebSocketUrl = useCallback(() => {
+    if (typeof window === 'undefined') return 'ws://localhost:8000';
+    
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.hostname;
+    const port = '8000';
+    
+    return `${protocol}//${host}:${port}`;
+  }, []);
+
   const connect = useCallback(() => {
     if (typeof window === 'undefined') return;
     
+    const wsUrl = getWebSocketUrl();
+    console.log('Connecting to WebSocket:', wsUrl);
+    
     try {
-      ws.current = new WebSocket('ws://localhost:8000');
+      ws.current = new WebSocket(wsUrl);
       
       ws.current.onopen = () => {
-        console.log('WebSocket connected to ws://localhost:8000');
+        console.log(`WebSocket connected to ${wsUrl}`);
         setIsConnected(true);
         setError(null);
         reconnectAttempts.current = 0;
@@ -140,7 +157,7 @@ export function useWebSocket(): UseWebSocketReturn {
       console.error('Error creating WebSocket:', err);
       setError('Failed to create WebSocket connection');
     }
-  }, []);
+  }, [getWebSocketUrl]);
 
   const sendMessage = useCallback((message: any) => {
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {

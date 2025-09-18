@@ -29,57 +29,7 @@ interface MapComponentProps {
     lat: number;
     lng: number;
     timestamp: string;
-  };
-}
-
-// Custom marker component that updates position without re-rendering
-function RobotMarker({ position, timestamp }: { position: [number, number]; timestamp: string }) {
-  const markerRef = useRef<any>(null);
-  const popupRef = useRef<any>(null);
-
-  useEffect(() => {
-    if (markerRef.current && position) {
-      // Smoothly animate marker to new position
-      markerRef.current.setLatLng(position);
-      
-      // Update popup content with new timestamp
-      if (popupRef.current) {
-        popupRef.current.setContent(`
-          <div class="text-center p-2">
-            <div class="font-semibold text-slate-800 mb-1">Robot Location</div>
-            <div class="text-sm text-slate-600">
-              <div>Lat: ${position[0].toFixed(6)}</div>
-              <div>Lng: ${position[1].toFixed(6)}</div>
-              <div class="text-xs text-slate-500 mt-1">
-                Last updated: ${new Date(timestamp).toLocaleTimeString()}
-              </div>
-            </div>
-          </div>
-        `);
-      }
-    }
-  }, [position, timestamp]);
-
-  return (
-    <Marker 
-      ref={markerRef}
-      position={position} 
-      icon={(window as any).robotIcon}
-    >
-      <Popup ref={popupRef}>
-        <div className="text-center p-2">
-          <div className="font-semibold text-slate-800 mb-1">Robot Location</div>
-          <div className="text-sm text-slate-600">
-            <div>Lat: {position[0].toFixed(6)}</div>
-            <div>Lng: {position[1].toFixed(6)}</div>
-            <div className="text-xs text-slate-500 mt-1">
-              Last updated: {new Date(timestamp).toLocaleTimeString()}
-            </div>
-          </div>
-        </div>
-      </Popup>
-    </Marker>
-  );
+  } | null;
 }
 
 export default function MapComponent({ robotLocation }: MapComponentProps) {
@@ -88,6 +38,7 @@ export default function MapComponent({ robotLocation }: MapComponentProps) {
   const [currentLocation, setCurrentLocation] = useState<[number, number]>([37.7749, -122.4194]);
   const [lastUpdate, setLastUpdate] = useState(new Date().toISOString());
   const mapRef = useRef<any>(null);
+  const markerRef = useRef<any>(null);
 
   useEffect(() => {
     setIsClient(true);
@@ -99,10 +50,10 @@ export default function MapComponent({ robotLocation }: MapComponentProps) {
       setCurrentLocation([robotLocation.lat, robotLocation.lng]);
       setLastUpdate(robotLocation.timestamp);
       
-      // Optionally pan map to follow robot (uncomment if desired)
-      // if (mapRef.current) {
-      //   mapRef.current.setView([robotLocation.lat, robotLocation.lng], mapRef.current.getZoom());
-      // }
+      // Update marker position if it exists
+      if (markerRef.current) {
+        markerRef.current.setLatLng([robotLocation.lat, robotLocation.lng]);
+      }
     }
   }, [robotLocation]);
 
@@ -212,8 +163,24 @@ export default function MapComponent({ robotLocation }: MapComponentProps) {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         
-        {/* Robot marker with smooth real-time position updates */}
-        <RobotMarker position={currentLocation} timestamp={lastUpdate} />
+        {/* Robot marker with real-time position updates */}
+        <Marker 
+          ref={markerRef}
+          position={currentLocation}
+        >
+          <Popup>
+            <div className="text-center p-2">
+              <div className="font-semibold text-slate-800 mb-1">Robot Location</div>
+              <div className="text-sm text-slate-600">
+                <div>Lat: {currentLocation[0].toFixed(6)}</div>
+                <div>Lng: {currentLocation[1].toFixed(6)}</div>
+                <div className="text-xs text-slate-500 mt-1">
+                  Last updated: {new Date(lastUpdate).toLocaleTimeString()}
+                </div>
+              </div>
+            </div>
+          </Popup>
+        </Marker>
       </MapContainer>
       
       {/* Real-time status indicator */}

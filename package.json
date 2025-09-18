@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "start:prod": "concurrently \"npm run websocket\" \"npm start\"",
     "lint": "eslint",
     "websocket": "node websocket-server.js",
     "dev:full": "concurrently \"npm run websocket\" \"npm run dev\""
@@ -22,6 +23,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
+    "@types/leaflet": "^1.9.20",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
