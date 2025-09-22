@@ -1,195 +1,161 @@
+// components/LiveTrackingMapMapLibre.tsx
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
-import dynamic from 'next/dynamic';
+import { useEffect, useRef } from 'react';
+import maplibregl, {
+  Map,
+  Marker,
+  GeoJSONSource,
+  LngLatLike,
+  StyleSpecification,
+} from 'maplibre-gl';
 
-// Dynamically import MapContainer to avoid SSR issues
-const MapContainer = dynamic(
-  () => import('react-leaflet').then((mod) => mod.MapContainer),
-  { ssr: false }
-);
+// --- STATIC STYLE (outside component so it never changes) ---
+const OSM_STYLE: StyleSpecification = {
+  version: 8,
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: [
+        'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      ],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors',
+    },
+  },
+  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+};
 
-const TileLayer = dynamic(
-  () => import('react-leaflet').then((mod) => mod.TileLayer),
-  { ssr: false }
-);
+type LatLng = { lat: number; lng: number; timestamp: string };
 
-const Marker = dynamic(
-  () => import('react-leaflet').then((mod) => mod.Marker),
-  { ssr: false }
-);
-
-const Popup = dynamic(
-  () => import('react-leaflet').then((mod) => mod.Popup),
-  { ssr: false }
-);
-
-interface MapComponentProps {
-  robotLocation?: {
-    lat: number;
-    lng: number;
-    timestamp: string;
-  } | null;
+interface Props {
+  robotLocation?: LatLng | null;        // push new points here
+  initialCenter?: [number, number];     // [lat, lng]
+  initialZoom?: number;
+  heightClass?: string;                 // e.g. "h-96"
 }
 
-export default function MapComponent({ robotLocation }: MapComponentProps) {
-  const [isClient, setIsClient] = useState(false);
-  const [mapLoaded, setMapLoaded] = useState(false);
-  const [currentLocation, setCurrentLocation] = useState<[number, number]>([37.7749, -122.4194]);
-  const [lastUpdate, setLastUpdate] = useState(new Date().toISOString());
-  const mapRef = useRef<any>(null);
-  const markerRef = useRef<any>(null);
+export default function LiveTrackingMapMapLibre({
+  robotLocation,
+  initialCenter = [37.7749, -122.4194],
+  initialZoom = 16,
+  heightClass = 'h-96',
+}: Props) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<Map | null>(null);
+  const markerRef = useRef<Marker | null>(null);
+  const readyRef = useRef(false);
 
+  // Keep the line GeoJSON in a ref; mutate + setData (no React state)
+  const trackRef = useRef<GeoJSON.FeatureCollection<GeoJSON.LineString>>({
+    type: 'FeatureCollection',
+    features: [
+      { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } },
+    ],
+  });
+
+  // ---------- INIT MAP (run once on mount) ----------
   useEffect(() => {
-    setIsClient(true);
+    if (!containerRef.current) return;
+    // guard: if already initialized, do nothing
+    if (mapRef.current) return;
+
+    const map = new maplibregl.Map({
+      container: containerRef.current,
+      style: OSM_STYLE,
+      center: [initialCenter[1], initialCenter[0]] as LngLatLike, // lng, lat
+      zoom: initialZoom,
+      cooperativeGestures: true,
+      attributionControl: { compact: true, customAttribution: '© OpenStreetMap contributors' },
+    });
+    mapRef.current = map;
+
+    map.once('load', () => {
+      // Add empty source + styled line layer
+      map.addSource('track', { type: 'geojson', data: trackRef.current });
+
+      map.addLayer({
+        id: 'track-line',
+        type: 'line',
+        source: 'track',
+        paint: {
+          'line-color': '#ef4444',
+          'line-opacity': 0.95,
+          'line-width': 5.5,
+        },
+        layout: {
+          'line-cap': 'round',
+          'line-join': 'round',
+        },
+      });
+
+      // Create the live marker
+      const el = document.createElement('div');
+      el.style.width = '28px';
+      el.style.height = '28px';
+      el.style.border = '3px solid #fff';
+      el.style.borderRadius = '50%';
+      el.style.boxShadow = '0 6px 16px rgba(59,130,246,.6)';
+      el.style.background = 'linear-gradient(135deg,#3b82f6,#1d4ed8)';
+
+      markerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([initialCenter[1], initialCenter[0]])
+        .addTo(map);
+
+      readyRef.current = true;
+    });
+
+    return () => {
+      readyRef.current = false;
+      markerRef.current?.remove();
+      mapRef.current?.remove();
+      markerRef.current = null;
+      mapRef.current = null;
+    };
+    // INTENTIONALLY empty deps: we do not want to re-init on prop changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Update location when robotLocation prop changes
+  // ---------- APPLY LIVE UPDATES ----------
   useEffect(() => {
-    if (robotLocation) {
-      setCurrentLocation([robotLocation.lat, robotLocation.lng]);
-      setLastUpdate(robotLocation.timestamp);
-      
-      // Update marker position if it exists
-      if (markerRef.current) {
-        markerRef.current.setLatLng([robotLocation.lat, robotLocation.lng]);
-      }
+    if (!robotLocation) return;
+    if (!readyRef.current) return;
+
+    const map = mapRef.current;
+    const mk = markerRef.current;
+    if (!map || !mk) return;
+
+    const src = map.getSource('track') as GeoJSONSource | undefined;
+    if (!src) return; // source not ready yet (shouldn't happen after readyRef true)
+
+    const lngLat: [number, number] = [robotLocation.lng, robotLocation.lat];
+
+    // Move marker (no re-render)
+    mk.setLngLat(lngLat);
+
+    // Append to line only if it's a new coordinate
+    const line = trackRef.current.features[0].geometry;
+    const last = line.coordinates[line.coordinates.length - 1];
+    if (!last || last[0] !== lngLat[0] || last[1] !== lngLat[1]) {
+      line.coordinates.push(lngLat);
+      src.setData(trackRef.current); // atomic update; map does NOT refresh
     }
   }, [robotLocation]);
 
-  useEffect(() => {
-    if (isClient) {
-      // Import Leaflet only on client side
-      import('leaflet').then((L) => {
-        // Fix for default markers
-        delete (L.Icon.Default.prototype as any)._getIconUrl;
-        L.Icon.Default.mergeOptions({
-          iconRetinaUrl: '/images/marker-icon-2x.png',
-          iconUrl: '/images/marker-icon.png',
-          shadowUrl: '/images/marker-shadow.png',
-        });
-
-        // Create custom robot icon with smooth animation
-        const robotIcon = L.divIcon({
-          html: `
-            <div style="
-              width: 30px;
-              height: 30px;
-              background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-              border: 3px solid white;
-              border-radius: 50%;
-              box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              position: relative;
-              transition: all 0.3s ease;
-              animation: pulse 2s infinite;
-            ">
-              <div style="
-                width: 12px;
-                height: 12px;
-                background: white;
-                border-radius: 2px;
-                transform: rotate(45deg);
-              "></div>
-            </div>
-            <style>
-              @keyframes pulse {
-                0% { box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4); }
-                50% { box-shadow: 0 4px 20px rgba(59, 130, 246, 0.8); }
-                100% { box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4); }
-              }
-            </style>
-          `,
-          className: 'custom-robot-icon',
-          iconSize: [30, 30],
-          iconAnchor: [15, 15],
-        });
-
-        // Store the icon globally for use in markers
-        (window as any).robotIcon = robotIcon;
-        
-        setMapLoaded(true);
-      });
-    }
-  }, [isClient]);
-
-  if (!isClient) {
-    return (
-      <div className="h-72 sm:h-80 lg:h-96 xl:h-[500px] rounded-2xl overflow-hidden shadow-xl border border-slate-200/50">
-        <div className="w-full h-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
-          <div className="text-center p-4">
-            <div className="relative">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 border-4 border-slate-300 border-t-blue-500 rounded-full animate-spin mx-auto mb-3 sm:mb-4"></div>
-              <div className="absolute inset-0 w-10 h-10 sm:w-12 sm:h-12 border-4 border-transparent border-t-blue-300 rounded-full animate-spin mx-auto" style={{animationDirection: 'reverse', animationDuration: '1.5s'}}></div>
-            </div>
-            <p className="text-slate-600 font-medium text-sm sm:text-base">Loading map...</p>
-            <p className="text-slate-400 text-xs sm:text-sm mt-1">Initializing location services</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!mapLoaded) {
-    return (
-      <div className="h-72 sm:h-80 lg:h-96 xl:h-[500px] rounded-2xl overflow-hidden shadow-xl border border-slate-200/50">
-        <div className="w-full h-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
-          <div className="text-center p-4">
-            <div className="relative">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 border-4 border-slate-300 border-t-blue-500 rounded-full animate-spin mx-auto mb-3 sm:mb-4"></div>
-              <div className="absolute inset-0 w-10 h-10 sm:w-12 sm:h-12 border-4 border-transparent border-t-blue-300 rounded-full animate-spin mx-auto" style={{animationDirection: 'reverse', animationDuration: '1.5s'}}></div>
-            </div>
-            <p className="text-slate-600 font-medium text-sm sm:text-base">Loading map...</p>
-            <p className="text-slate-400 text-xs sm:text-sm mt-1">Initializing location services</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="relative h-72 sm:h-80 lg:h-96 xl:h-[500px] rounded-2xl overflow-hidden shadow-xl border border-slate-200/50">
-      <MapContainer
-        ref={mapRef}
-        center={currentLocation}
-        zoom={13}
-        style={{ height: '100%', width: '100%' }}
-        zoomControl={true}
-      >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        
-        {/* Robot marker with real-time position updates */}
-        <Marker 
-          ref={markerRef}
-          position={currentLocation}
-        >
-          <Popup>
-            <div className="text-center p-2">
-              <div className="font-semibold text-slate-800 mb-1">Robot Location</div>
-              <div className="text-sm text-slate-600">
-                <div>Lat: {currentLocation[0].toFixed(6)}</div>
-                <div>Lng: {currentLocation[1].toFixed(6)}</div>
-                <div className="text-xs text-slate-500 mt-1">
-                  Last updated: {new Date(lastUpdate).toLocaleTimeString()}
-                </div>
-              </div>
-            </div>
-          </Popup>
-        </Marker>
-      </MapContainer>
-      
-      {/* Real-time status indicator */}
-      <div className="absolute top-2 right-2 sm:top-4 sm:right-4 bg-white/90 backdrop-blur-sm rounded-lg px-2 py-1 sm:px-3 sm:py-2 shadow-lg border border-slate-200/50">
-        <div className="flex items-center gap-1 sm:gap-2">
-          <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-          <span className="text-xs sm:text-sm font-medium text-slate-700">Live</span>
+    <div className={`relative ${heightClass} rounded-2xl overflow-hidden shadow-xl border border-slate-200`}>
+      <div ref={containerRef} className="w-full h-full" />
+      <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-sm rounded px-2 py-1 shadow border">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+          <span className="text-xs font-medium text-slate-700">Live</span>
         </div>
       </div>
+      <style jsx global>{`
+        .maplibregl-canvas { will-change: transform; }
+      `}</style>
     </div>
   );
 }

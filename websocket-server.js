@@ -92,6 +92,9 @@ wss.on("connection", function connection(ws, req) {
                 robotId: ws.robotId, 
                 data: parsedMessage.data 
               }));
+              console.log(`✅ Forwarding location to web client:`, parsedMessage.data);
+            } else {
+              console.log(`❌ No active web client to forward location to`);
             }
             break;
           case "status":
@@ -120,83 +123,61 @@ wss.on("connection", function connection(ws, req) {
             }
             break;
           default:
-            console.log(`Unknown message type from robot ${ws.robotId}: ${parsedMessage.type}`);
+            console.log(`Unknown message type from robot: ${parsedMessage.type}`);
+            break;
         }
       } else {
         // Handle messages from web client
         switch (parsedMessage.type) {
-          case "command":
-            console.log(`Command sent from web client ${ws.clientId}:`, parsedMessage.command);
-            // Forward command to robot
+          case "button_press":
+            console.log(`Button press from web client:`, parsedMessage.data);
+            // Forward to robot
             if (connectedRobot && connectedRobot.readyState === connectedRobot.OPEN) {
               connectedRobot.send(JSON.stringify({
-                type: "command_received",
-                command: parsedMessage.command,
-                timestamp: parsedMessage.timestamp,
-                source: parsedMessage.source
-              }));
-            } else {
-              // No robot connected, send error back to web client
-              ws.send(JSON.stringify({
-                type: "error",
-                message: "No robot connected"
+                type: "command",
+                command: parsedMessage.data.button,
+                timestamp: parsedMessage.timestamp
               }));
             }
             break;
           case "voice_command":
-            console.log(`Voice command sent from web client ${ws.clientId}:`, parsedMessage.action, parsedMessage.data);
+            console.log(`Voice command from web client:`, parsedMessage.data);
+            // Forward to robot
             if (connectedRobot && connectedRobot.readyState === connectedRobot.OPEN) {
               connectedRobot.send(JSON.stringify({
-                type: "voice_command_received",
-                action: parsedMessage.action,
+                type: "voice_command",
                 data: parsedMessage.data,
-                timestamp: parsedMessage.timestamp,
-                source: parsedMessage.source
-              }));
-            } else {
-              ws.send(JSON.stringify({
-                type: "error",
-                message: "No robot connected"
+                timestamp: parsedMessage.timestamp
               }));
             }
             break;
           case "location_request":
-            console.log(`Location request sent from web client ${ws.clientId}:`, parsedMessage.data);
+            console.log(`Location request from web client:`, parsedMessage.data);
+            // Forward to robot
             if (connectedRobot && connectedRobot.readyState === connectedRobot.OPEN) {
               connectedRobot.send(JSON.stringify({
-                type: "location_request_received",
+                type: "location_request",
                 data: parsedMessage.data,
-                timestamp: parsedMessage.timestamp,
-                source: parsedMessage.source
-              }));
-            } else {
-              ws.send(JSON.stringify({
-                type: "error",
-                message: "No robot connected"
+                timestamp: parsedMessage.timestamp
               }));
             }
             break;
-          case "ping":
-            ws.send(JSON.stringify({ type: "pong", timestamp: Date.now() }));
-            break;
           default:
-            console.log(`Unknown message type from web client ${ws.clientId}: ${parsedMessage.type}`);
+            console.log(`Unknown message type from web client: ${parsedMessage.type}`);
+            break;
         }
       }
     } catch (error) {
-      console.error(`Failed to parse message from ${ws.isRobot ? ws.robotId : ws.clientId}:`, data.toString(), error);
+      console.error("Error parsing message:", error);
     }
   });
 
-  ws.on("pong", () => {
-    ws.isAlive = true;
-  });
-
-  ws.on("close", () => {
+  ws.on("close", function close() {
+    console.log(`${ws.isRobot ? `Robot ${ws.robotId}` : `Web client ${ws.clientId}`} disconnected`);
+    
     if (ws.isRobot) {
-      console.log(`Robot ${ws.robotId} disconnected`);
       connectedRobot = null;
-      // Notify web client that robot disconnected - include robotId
+      // Notify web client about robot disconnection
       if (connectedWebClient && connectedWebClient.readyState === connectedWebClient.OPEN) {
         connectedWebClient.send(JSON.stringify({
           type: "robot_disconnected",
@@ -204,40 +185,35 @@ wss.on("connection", function connection(ws, req) {
         }));
       }
     } else {
-      console.log(`Web client ${ws.clientId} disconnected`);
       connectedWebClient = null;
     }
   });
 
-  ws.on("error", (error) => {
-    console.error(`WebSocket error for ${ws.isRobot ? ws.robotId : ws.clientId}:`, error);
+  ws.on("error", function error(err) {
+    console.error(`WebSocket error for ${ws.isRobot ? `Robot ${ws.robotId}` : `Web client ${ws.clientId}`}:`, err);
+  });
+
+  // Heartbeat to keep connection alive
+  ws.on("pong", function pong() {
+    ws.isAlive = true;
   });
 });
 
-// Heartbeat mechanism to detect broken connections
-const interval = setInterval(() => {
-  wss.clients.forEach((ws) => {
-    if (!ws.isAlive) {
-      console.log(`Removing inactive ${ws.isRobot ? 'robot' : 'client'}: ${ws.isRobot ? ws.robotId : ws.clientId}`);
+// Heartbeat interval
+const interval = setInterval(function ping() {
+  wss.clients.forEach(function each(ws) {
+    if (ws.isAlive === false) {
+      console.log(`Terminating inactive connection: ${ws.isRobot ? `Robot ${ws.robotId}` : `Web client ${ws.clientId}`}`);
       return ws.terminate();
     }
+
     ws.isAlive = false;
     ws.ping();
   });
-}, 30000); // Check every 30 seconds
+}, 30000);
 
-wss.on("close", () => {
+wss.on("close", function close() {
   clearInterval(interval);
 });
 
-console.log("Robot Controller WebSocket Server running on port 8000");
-console.log("Waiting for one robot and one web client connection...");
-
-// Export for potential use in other server-side logic
-module.exports = {
-  wss,
-  getConnectedRobot: () => connectedRobot ? connectedRobot.robotId : null,
-  getConnectedWebClient: () => connectedWebClient ? connectedWebClient.clientId : null,
-  isRobotConnected: () => connectedRobot !== null,
-  isWebClientConnected: () => connectedWebClient !== null,
-};
+console.log("WebSocket server ready on port 8000");
