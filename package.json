@@ -9,7 +9,11 @@
     "start:prod": "concurrently \"npm run websocket\" \"npm start\"",
     "lint": "eslint",
     "websocket": "node websocket-server.js",
-    "dev:full": "concurrently \"npm run websocket\" \"npm run dev\""
+    "dev:full": "concurrently \"npm run websocket\" \"npm run dev\"",
+    "env:generate": "node scripts/dynamic-env.js",
+    "dev:dynamic": "npm run env:generate && npm run dev:full",
+    "build:dynamic": "npm run env:generate && npm run build",
+    "start:dynamic": "npm run env:generate && npm run start"
   },
   "dependencies": {
     "@types/ws": "^8.18.1",

@@ -1,9 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface WebSocketMessage {
   type: string;
-  data?: any;
-  robotId?: string;
   message?: string;
   clientId?: string;
   isWebClient?: boolean;
@@ -25,9 +23,29 @@ export function useWebSocket() {
   const ws = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Function to get the current host IP dynamically
+  const getWebSocketURL = () => {
+    // Check if we're in a deployment environment
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname;
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      
+      // For deployment platforms, use the current domain
+      if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+        return `${protocol}//${hostname}/web`;
+      }
+      
+      // For local development, try to use the current hostname or fallback to localhost
+      return `ws://${hostname}:8000/web`;
+    }
+    
+    // Server-side fallback
+    return process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'ws://localhost:8000/web';
+  };
+
   const connect = () => {
     try {
-      const wsUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'ws://localhost:8000/web';
+      const wsUrl = getWebSocketURL();
       console.log('🔌 Connecting to WebSocket:', wsUrl);
       
       ws.current = new WebSocket(wsUrl);
@@ -43,48 +61,30 @@ export function useWebSocket() {
 
       ws.current.onmessage = (event) => {
         try {
-          const message: WebSocketMessage = JSON.parse(event.data);
-          console.log('📨 Received WebSocket message:', message);
+          const message = JSON.parse(event.data);
           setLastMessage(message);
-          
+          console.log('📨 WebSocket message received:', message);
+
           switch (message.type) {
             case 'welcome':
-              console.log('👋 Welcome message received:', message);
+              console.log('🎉 Welcome message:', message.message);
               if (message.robotConnected) {
                 setIsRobotConnected(true);
-                setConnectedRobots(['robot_001']);
-              } else {
-                setIsRobotConnected(false);
-                setConnectedRobots([]);
-              }
-              break;
-            case 'connected_robots':
-              console.log('🤖 Connected robots:', message.robots);
-              if (message.robots) {
-                setConnectedRobots(message.robots);
-                setIsRobotConnected(message.robots.length > 0);
               }
               break;
             case 'robot_connected':
               console.log('🤖 Robot connected:', message.robotId);
               setIsRobotConnected(true);
-              setConnectedRobots([message.robotId || 'robot_001']);
+              setConnectedRobots(prev => [...prev, message.robotId]);
               break;
             case 'robot_disconnected':
               console.log('🤖 Robot disconnected:', message.robotId);
               setIsRobotConnected(false);
-              setConnectedRobots([]);
-              setRobotLocation(null); // Clear location when robot disconnects
+              setConnectedRobots(prev => prev.filter(id => id !== message.robotId));
               break;
             case 'robot_location':
               console.log('📍 Robot location update:', message.data);
-              if (message.data) {
-                setRobotLocation({
-                  lat: message.data.lat,
-                  lng: message.data.lng,
-                  timestamp: message.data.timestamp || new Date().toISOString()
-                });
-              }
+              setRobotLocation(message.data);
               break;
             case 'robot_status':
               console.log('📊 Robot status update:', message.data);
@@ -112,7 +112,7 @@ export function useWebSocket() {
         // Attempt to reconnect after 3 seconds
         if (!reconnectTimeoutRef.current) {
           reconnectTimeoutRef.current = setTimeout(() => {
-            console.log('�� Attempting to reconnect...');
+            console.log('🔄 Attempting to reconnect...');
             connect();
           }, 3000);
         }
