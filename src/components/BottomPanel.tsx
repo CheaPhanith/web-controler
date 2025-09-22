@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { speechToTextService, SpeechToTextResult } from '../services/speechToText';
 
 interface BottomPanelProps {
   onVoiceCommand: () => void;
@@ -12,27 +13,91 @@ interface BottomPanelProps {
 export default function BottomPanel({ onVoiceCommand, onSendLocation, isConnected, sendMessage }: BottomPanelProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isSendingLocation, setIsSendingLocation] = useState(false);
+  const [transcriptionText, setTranscriptionText] = useState<string>('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const recordingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleVoiceCommand = async () => {
-    if (!isConnected) return;
+    if (!isConnected || isRecording || isProcessing) return;
     
-    setIsRecording(true);
-    onVoiceCommand();
-    
-    // Send WebSocket message for voice command
-    const message = {
-      type: 'voice_command',
-      action: 'start_recording',
-      timestamp: new Date().toISOString(),
-      source: 'web_interface'
-    };
-    sendMessage(message);
-    console.log('Sent voice command to robot via WebSocket');
-    
-    // Simulate recording duration
-    setTimeout(() => {
+    try {
+      setIsRecording(true);
+      setTranscriptionText('');
+      onVoiceCommand();
+      
+      // Start recording
+      const recordingStarted = await speechToTextService.startRecording();
+      if (!recordingStarted) {
+        setIsRecording(false);
+        alert('Failed to start recording. Please check microphone permissions.');
+        return;
+      }
+
+      // Send initial WebSocket message
+      const message = {
+        type: 'voice_command',
+        action: 'start_recording',
+        timestamp: new Date().toISOString(),
+        source: 'web_interface'
+      };
+      sendMessage(message);
+      console.log('Started voice recording');
+
+      // Auto-stop recording after 5 seconds
+      recordingTimeoutRef.current = setTimeout(async () => {
+        await stopRecording();
+      }, 5000);
+
+    } catch (error) {
+      console.error('Error starting voice recording:', error);
       setIsRecording(false);
-    }, 2000);
+      alert('Error starting recording. Please try again.');
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!isRecording) return;
+    
+    try {
+      setIsRecording(false);
+      setIsProcessing(true);
+      
+      if (recordingTimeoutRef.current) {
+        clearTimeout(recordingTimeoutRef.current);
+        recordingTimeoutRef.current = null;
+      }
+
+      // Stop recording and get transcription
+      const result: SpeechToTextResult = await speechToTextService.stopRecording();
+      
+      if (result.success && result.text) {
+        setTranscriptionText(result.text);
+        
+        // Send transcribed text to WebSocket
+        const message = {
+          type: 'voice_command',
+          action: 'transcription_complete',
+          data: {
+            text: result.text,
+            timestamp: new Date().toISOString()
+          },
+          timestamp: new Date().toISOString(),
+          source: 'web_interface'
+        };
+        sendMessage(message);
+        console.log('Sent voice transcription to robot:', result.text);
+      } else {
+        const errorMsg = result.error || 'Failed to transcribe audio';
+        setTranscriptionText(`Error: ${errorMsg}`);
+        console.error('Transcription failed:', errorMsg);
+      }
+      
+    } catch (error) {
+      console.error('Error stopping recording:', error);
+      setTranscriptionText('Error: Failed to process recording');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleSendLocation = async () => {
@@ -76,19 +141,32 @@ export default function BottomPanel({ onVoiceCommand, onSendLocation, isConnecte
         </div>
       </div>
       
+      {/* Transcription Display */}
+      {transcriptionText && (
+        <div className="mb-4 p-3 bg-slate-100 rounded-lg border border-slate-200">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+            <span className="text-sm font-medium text-slate-600">Voice Command:</span>
+          </div>
+          <p className="text-sm text-slate-800 font-medium">{transcriptionText}</p>
+        </div>
+      )}
+      
       <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
         {/* Enhanced Voice Button */}
         <button
-          onClick={handleVoiceCommand}
-          disabled={!isConnected || isRecording}
+          onClick={isRecording ? stopRecording : handleVoiceCommand}
+          disabled={!isConnected || isProcessing}
           className={`
             group relative flex-1 flex items-center justify-center gap-2 sm:gap-3 py-3 sm:py-4 px-4 sm:px-6 rounded-xl sm:rounded-2xl font-semibold
             transition-all duration-300 transform-gpu overflow-hidden
             ${isRecording 
               ? 'bg-gradient-to-r from-red-500 via-red-600 to-red-700 text-white shadow-lg shadow-red-500/25 scale-95' 
-              : !isConnected || isRecording
-                ? 'opacity-40 cursor-not-allowed bg-slate-200 text-slate-400'
-                : 'bg-gradient-to-r from-emerald-500 via-emerald-600 to-emerald-700 text-white shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40 hover:scale-105 active:scale-95'
+              : isProcessing
+                ? 'bg-gradient-to-r from-yellow-500 via-yellow-600 to-yellow-700 text-white shadow-lg shadow-yellow-500/25'
+                : !isConnected
+                  ? 'opacity-40 cursor-not-allowed bg-slate-200 text-slate-400'
+                  : 'bg-gradient-to-r from-emerald-500 via-emerald-600 to-emerald-700 text-white shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40 hover:scale-105 active:scale-95'
             }
           `}
         >
@@ -105,7 +183,7 @@ export default function BottomPanel({ onVoiceCommand, onSendLocation, isConnecte
           </svg>
           
           <span className="relative z-10 font-bold text-sm sm:text-base">
-            {isRecording ? 'Recording...' : 'Voice'}
+            {isRecording ? 'Stop Recording' : isProcessing ? 'Processing...' : 'Voice'}
           </span>
           
           <div className="absolute inset-0 rounded-xl sm:rounded-2xl border border-white/30 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>

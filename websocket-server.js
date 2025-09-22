@@ -144,11 +144,12 @@ wss.on("connection", function connection(ws, req) {
             }
             break;
           case "voice_command":
-            console.log(`Voice command sent from web client ${ws.clientId}:`, parsedMessage.action);
+            console.log(`Voice command sent from web client ${ws.clientId}:`, parsedMessage.action, parsedMessage.data);
             if (connectedRobot && connectedRobot.readyState === connectedRobot.OPEN) {
               connectedRobot.send(JSON.stringify({
                 type: "voice_command_received",
                 action: parsedMessage.action,
+                data: parsedMessage.data,
                 timestamp: parsedMessage.timestamp,
                 source: parsedMessage.source
               }));
