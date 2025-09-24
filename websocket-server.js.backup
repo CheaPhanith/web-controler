@@ -1,50 +1,6 @@
 const { WebSocketServer } = require("ws");
-const https = require("https");
-const fs = require("fs");
-const path = require("path");
 
-// SSL Context Configuration
-// Creates SSL context with disabled certificate verification
-const sslOptions = {
-  // SSL certificate files
-  key: fs.readFileSync("/etc/ssl/private/sibl.cloud.key"),
-  cert: fs.readFileSync("/etc/ssl/certs/sibl.cloud.crt"),
-  
-  // SSL options equivalent to Python's ssl context configuration
-  // Disables certificate verification (verify_mode = ssl.CERT_NONE)
-  rejectUnauthorized: false,
-  
-  // Disables hostname checking (check_hostname = False)
-  checkServerIdentity: () => undefined,
-  
-  // Additional SSL options for relaxed certificate requirements
-  requestCert: false,
-  ca: [],
-  
-  // TLS options
-  secureProtocol: 'TLSv1_2_method',
-  ciphers: [
-    'ECDHE-RSA-AES256-GCM-SHA512',
-    'DHE-RSA-AES256-GCM-SHA512',
-    'ECDHE-RSA-AES256-GCM-SHA384',
-    'DHE-RSA-AES256-GCM-SHA384',
-    'ECDHE-RSA-AES256-SHA384'
-  ].join(':'),
-  honorCipherOrder: true
-};
-
-// Create HTTPS server with SSL context
-const server = https.createServer(sslOptions);
-
-// Create WebSocket server using the HTTPS server
-// This enables WSS (WebSocket Secure) connections
-const wss = new WebSocketServer({ 
-  server: server,
-  // SSL options equivalent to Python's sslopt parameter
-  // Disables certificate requirements for WebSocket connections
-  verifyClient: () => true, // Accept all clients without verification
-  perMessageDeflate: false
-});
+const wss = new WebSocketServer({ port: 8000 });
 
 // One-to-one connection: only one robot and one web client at a time
 let connectedRobot = null;
@@ -53,16 +9,7 @@ let connectedWebClient = null;
 // Fixed robot ID - no auto-generation
 const ROBOT_ID = "robot_001";
 
-console.log("WebSocket server starting on port 8000 with SSL/WSS support...");
-console.log("SSL Context Configuration:");
-console.log("- Certificate verification: DISABLED (rejectUnauthorized: false)");
-console.log("- Hostname checking: DISABLED (checkServerIdentity: undefined)");
-console.log("- Client certificate required: DISABLED (requestCert: false)");
-
-// Start the HTTPS server
-server.listen(8000, function() {
-  console.log("WSS (WebSocket Secure) server ready on port 8000");
-});
+console.log("WebSocket server starting on port 8000...");
 
 wss.on("connection", function connection(ws, req) {
   ws.isAlive = true; // For heartbeat
@@ -80,18 +27,17 @@ wss.on("connection", function connection(ws, req) {
     
     connectedWebClient = ws;
     ws.isRobot = false;
-    ws.clientId = \`web_client_\${Date.now()}\`;
+    ws.clientId = `web_client_${Date.now()}`;
     
-    console.log(\`Web client connected via WSS: \${ws.clientId} from \${req.socket.remoteAddress}\`);
+    console.log(`Web client connected: ${ws.clientId} from ${req.socket.remoteAddress}`);
     
     // Send welcome message to web client
     ws.send(JSON.stringify({ 
       type: "welcome", 
-      message: "Connected to Robot Controller via WSS", 
+      message: "Connected to Robot Controller", 
       clientId: ws.clientId,
       isWebClient: true,
-      robotConnected: connectedRobot ? true : false,
-      secure: true
+      robotConnected: connectedRobot ? true : false
     }));
     
     // If robot is already connected, notify web client
@@ -113,12 +59,11 @@ wss.on("connection", function connection(ws, req) {
     ws.isRobot = true;
     ws.robotId = ROBOT_ID; // Use fixed robot ID
     
-    console.log(\`Robot connected via WSS: \${ROBOT_ID} from \${req.socket.remoteAddress}\`);
+    console.log(`Robot connected: ${ROBOT_ID} from ${req.socket.remoteAddress}`);
     ws.send(JSON.stringify({ 
       type: "welcome", 
-      message: "Connected to Robot Controller via WSS", 
-      robotId: ROBOT_ID,
-      secure: true
+      message: "Connected to Robot Controller", 
+      robotId: ROBOT_ID
     }));
     
     // If web client is already connected, notify it about robot connection
@@ -133,13 +78,13 @@ wss.on("connection", function connection(ws, req) {
   ws.on("message", function message(data) {
     try {
       const parsedMessage = JSON.parse(data.toString());
-      console.log(\`WSS Message from \${ws.isRobot ? ws.robotId : ws.clientId}:\`, parsedMessage);
+      console.log(`Message from ${ws.isRobot ? ws.robotId : ws.clientId}:`, parsedMessage);
 
       if (ws.isRobot) {
         // Handle messages from robot
         switch (parsedMessage.type) {
           case "location":
-            console.log(\`Robot \${ws.robotId} location:\`, parsedMessage.data);
+            console.log(`Robot ${ws.robotId} location:`, parsedMessage.data);
             // Send location to web client
             if (connectedWebClient && connectedWebClient.readyState === connectedWebClient.OPEN) {
               connectedWebClient.send(JSON.stringify({ 
@@ -147,13 +92,13 @@ wss.on("connection", function connection(ws, req) {
                 robotId: ws.robotId, 
                 data: parsedMessage.data 
               }));
-              console.log(\`✅ Forwarding location to web client via WSS:\`, parsedMessage.data);
+              console.log(`✅ Forwarding location to web client:`, parsedMessage.data);
             } else {
-              console.log(\`❌ No active web client to forward location to\`);
+              console.log(`❌ No active web client to forward location to`);
             }
             break;
           case "status":
-            console.log(\`Robot \${ws.robotId} status:\`, parsedMessage.data);
+            console.log(`Robot ${ws.robotId} status:`, parsedMessage.data);
             // Send status to web client
             if (connectedWebClient && connectedWebClient.readyState === connectedWebClient.OPEN) {
               connectedWebClient.send(JSON.stringify({ 
@@ -167,7 +112,7 @@ wss.on("connection", function connection(ws, req) {
             ws.send(JSON.stringify({ type: "pong", timestamp: Date.now() }));
             break;
           case "command_response":
-            console.log(\`Command response from \${ws.robotId}:\`, parsedMessage.data);
+            console.log(`Command response from ${ws.robotId}:`, parsedMessage.data);
             // Send response to web client
             if (connectedWebClient && connectedWebClient.readyState === connectedWebClient.OPEN) {
               connectedWebClient.send(JSON.stringify({ 
@@ -178,14 +123,14 @@ wss.on("connection", function connection(ws, req) {
             }
             break;
           default:
-            console.log(\`Unknown message type from robot: \${parsedMessage.type}\`);
+            console.log(`Unknown message type from robot: ${parsedMessage.type}`);
             break;
         }
       } else {
         // Handle messages from web client
         switch (parsedMessage.type) {
           case "button_press":
-            console.log(\`Button press from web client:\`, parsedMessage.data);
+            console.log(`Button press from web client:`, parsedMessage.data);
             // Forward to robot
             if (connectedRobot && connectedRobot.readyState === connectedRobot.OPEN) {
               connectedRobot.send(JSON.stringify({
@@ -196,7 +141,7 @@ wss.on("connection", function connection(ws, req) {
             }
             break;
           case "voice_command":
-            console.log(\`Voice command from web client:\`, parsedMessage.data);
+            console.log(`Voice command from web client:`, parsedMessage.data);
             // Forward to robot
             if (connectedRobot && connectedRobot.readyState === connectedRobot.OPEN) {
               connectedRobot.send(JSON.stringify({
@@ -207,7 +152,7 @@ wss.on("connection", function connection(ws, req) {
             }
             break;
           case "location_request":
-            console.log(\`Location request from web client:\`, parsedMessage.data);
+            console.log(`Location request from web client:`, parsedMessage.data);
             // Forward to robot
             if (connectedRobot && connectedRobot.readyState === connectedRobot.OPEN) {
               connectedRobot.send(JSON.stringify({
@@ -218,17 +163,17 @@ wss.on("connection", function connection(ws, req) {
             }
             break;
           default:
-            console.log(\`Unknown message type from web client: \${parsedMessage.type}\`);
+            console.log(`Unknown message type from web client: ${parsedMessage.type}`);
             break;
         }
       }
     } catch (error) {
-      console.error("Error parsing WSS message:", error);
+      console.error("Error parsing message:", error);
     }
   });
 
   ws.on("close", function close() {
-    console.log(\`\${ws.isRobot ? \`Robot \${ws.robotId}\` : \`Web client \${ws.clientId}\`} disconnected from WSS\`);
+    console.log(`${ws.isRobot ? `Robot ${ws.robotId}` : `Web client ${ws.clientId}`} disconnected`);
     
     if (ws.isRobot) {
       connectedRobot = null;
@@ -245,7 +190,7 @@ wss.on("connection", function connection(ws, req) {
   });
 
   ws.on("error", function error(err) {
-    console.error(\`WSS error for \${ws.isRobot ? \`Robot \${ws.robotId}\` : \`Web client \${ws.clientId}\`}:\`, err);
+    console.error(`WebSocket error for ${ws.isRobot ? `Robot ${ws.robotId}` : `Web client ${ws.clientId}`}:`, err);
   });
 
   // Heartbeat to keep connection alive
@@ -258,7 +203,7 @@ wss.on("connection", function connection(ws, req) {
 const interval = setInterval(function ping() {
   wss.clients.forEach(function each(ws) {
     if (ws.isAlive === false) {
-      console.log(\`Terminating inactive WSS connection: \${ws.isRobot ? \`Robot \${ws.robotId}\` : \`Web client \${ws.clientId}\`}\`);
+      console.log(`Terminating inactive connection: ${ws.isRobot ? `Robot ${ws.robotId}` : `Web client ${ws.clientId}`}`);
       return ws.terminate();
     }
 
@@ -269,27 +214,6 @@ const interval = setInterval(function ping() {
 
 wss.on("close", function close() {
   clearInterval(interval);
-  console.log("WSS server closed");
 });
 
-// Handle server errors
-server.on("error", function(err) {
-  console.error("HTTPS/WSS server error:", err);
-});
-
-// Graceful shutdown
-process.on('SIGINT', function() {
-  console.log('\nShutting down WSS server gracefully...');
-  clearInterval(interval);
-  wss.close();
-  server.close();
-  process.exit(0);
-});
-
-process.on('SIGTERM', function() {
-  console.log('\nShutting down WSS server gracefully...');
-  clearInterval(interval);
-  wss.close();
-  server.close();
-  process.exit(0);
-});
+console.log("WebSocket server ready on port 8000");
